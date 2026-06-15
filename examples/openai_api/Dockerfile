@@ -21,7 +21,8 @@ RUN python -m pip install --upgrade pip \
         funasr \
         fastapi \
         "uvicorn[standard]" \
-        python-multipart
+        python-multipart \
+    && pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
 COPY server.py /app/server.py
 
