@@ -18,7 +18,7 @@ Linux 桌面系统声音采集还需要 `ffmpeg` 和 `pactl`。脚本默认连�
 ffmpeg -y -i /home/bay/rec/edge.mp3 -ac 1 -ar 16000 /tmp/edge.wav
 python live_caption_client.py \
   --audio-file /tmp/edge.wav \
-  --host 127.0.0.1 \
+  --host game \
   --port 10096 \
   --mode 2pass \
   --jsonl /tmp/live-caption-events.jsonl
