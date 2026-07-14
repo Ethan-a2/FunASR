@@ -42,7 +42,7 @@ python server.py --host 127.0.0.1 --model sensevoice --device cpu --port 8000
 
 模型加载后再检查 `GET /health`；下载及启动耗时取决于 checkpoint、缓存、网络和硬件。健康检查成功不等于转写正确。除非另有说明，下文命令均在本目录执行。准备好 CUDA 依赖后，可将 CPU 启动命令替换为 `python server.py --host 127.0.0.1 --model sensevoice --device cuda --port 8000`，不要同时在相同端口启动两次。
 
-需要直接复制的接入示例？可以继续查看 [客户端配方](CLIENTS.md)、[JavaScript/TypeScript 配方](JAVASCRIPT_zh.md)、[Gradio 浏览器 Demo](GRADIO_zh.md)、[工作流配方](WORKFLOWS_zh.md)、[Postman 集合](POSTMAN_zh.md)、[OpenAPI 规范](OPENAPI_zh.md)、[安全与网关指南](SECURITY_zh.md) 和 [Kubernetes 部署模板](kubernetes/README_zh.md)。
+需要直接复制的接入示例？可以继续查看 [客户端配方](CLIENTS.md)、[JavaScript/TypeScript 配方](JAVASCRIPT_zh.md)、[Gradio 浏览器 Demo](GRADIO_zh.md)、[Runtime 实时字幕客户端](LIVE_CAPTIONS_zh.md)、[工作流配方](WORKFLOWS_zh.md)、[Postman 集合](POSTMAN_zh.md)、[OpenAPI 规范](OPENAPI_zh.md)、[安全与网关指南](SECURITY_zh.md) 和 [Kubernetes 部署模板](kubernetes/README_zh.md)。
 
 ### 端到端 smoke test
 
