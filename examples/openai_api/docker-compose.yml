@@ -14,5 +14,30 @@ services:
       - funasr-cache:/root/.cache
     shm_size: "2gb"
 
+  funasr-ws:
+    image: "${FUNASR_WS_IMAGE:-registry.cn-hangzhou.aliyuncs.com/funasr_repo/funasr:funasr-runtime-sdk-online-cpu-0.1.13}"
+    profiles:
+      - websocket
+    restart: always
+    privileged: true
+    ports:
+      - "${FUNASR_WS_HOST_PORT:-10096}:10095"
+    environment:
+      FUNASR_WS_MODEL_DIR: "${FUNASR_WS_MODEL_DIR:-damo/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-onnx}"
+      FUNASR_WS_ONLINE_MODEL_DIR: "${FUNASR_WS_ONLINE_MODEL_DIR:-damo/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-online-onnx}"
+      FUNASR_WS_VAD_DIR: "${FUNASR_WS_VAD_DIR:-damo/speech_fsmn_vad_zh-cn-16k-common-onnx}"
+      FUNASR_WS_PUNC_DIR: "${FUNASR_WS_PUNC_DIR:-damo/punc_ct-transformer_zh-cn-common-vad_realtime-vocab272727-onnx}"
+      FUNASR_WS_LM_DIR: "${FUNASR_WS_LM_DIR:-damo/speech_ngram_lm_zh-cn-ai-wesp-fst}"
+      FUNASR_WS_ITN_DIR: "${FUNASR_WS_ITN_DIR:-thuduj12/fst_itn_zh}"
+      FUNASR_WS_DECODER_THREADS: "${FUNASR_WS_DECODER_THREADS:-}"
+      FUNASR_WS_MODEL_THREADS: "${FUNASR_WS_MODEL_THREADS:-1}"
+      FUNASR_WS_IO_THREADS: "${FUNASR_WS_IO_THREADS:-}"
+    volumes:
+      - ./funasr-runtime-resources/models:/workspace/models
+      - ./start-funasr-ws.sh:/workspace/start-funasr-ws.sh:ro
+    command:
+      - bash
+      - /workspace/start-funasr-ws.sh
+
 volumes:
   funasr-cache:
