@@ -4,7 +4,7 @@
 
 ## Benchmark
 
-**Test set**: 184 files, 11,541 seconds total. Models: Fun-ASR-Nano / GLM-ASR-Nano.
+**Test set**: 184 files, 11,541 seconds total. Models: Fun-ASR-Nano / GLM-ASR-Nano. See [Benchmark RTF and Reproducibility Notes](./benchmark/rtf_reproducibility.md) for the `RTFx` definition, timing scope checklist, and fields required for comparable reports.
 
 | Model | Engine | VAD | RTFx | CER | Notes |
 |-------|--------|-----|------|-----|-------|
@@ -34,24 +34,24 @@
 
 ## 1. Installation & Environment
 
+Install vLLM first, choosing a version compatible with your NVIDIA driver's CUDA. vLLM pins and installs a matching torch / torchaudio / torchvision trio automatically, so do not install torch/torchaudio yourself — the three are ABI-locked, i.e. they must be the matching set built against each other (e.g. torch 2.10.0 ↔ torchaudio 2.10.0 ↔ torchvision 0.25.0). 
+
 ```bash
-pip install torch torchaudio
+# 1) Install vLLM first. Pick the version by the CUDA version shown in `nvidia-smi`
+#    (the driver's max CUDA), NOT the runtime CUDA. vLLM brings a matching torch/torchaudio/torchvision.
+#    driver CUDA 12.x  -> pip install vllm==0.19.1   (ships torch 2.10 / cu128)
+#    driver CUDA >= 13 -> pip install vllm           (latest; ships torch 2.11 / cu130)
+pip install "vllm==0.19.1"   # adjust to your driver CUDA; see note below
+
+# 2) Then FunASR and the rest.
 pip install funasr>=1.3.0
-# Install vLLM separately after choosing a version compatible with your NVIDIA driver, CUDA runtime, and PyTorch wheel.
-pip install safetensors tiktoken websockets regex fastapi uvicorn python-multipart
 
 cd /path/to/FunASR && pip install -e .
 ```
 
 **Hardware**: GPU ≥ 8 GB VRAM, CUDA ≥ 11.8. 16 GB+ recommended.
 
-Install a PyTorch/torchaudio/vLLM combination that matches your NVIDIA driver and
-CUDA runtime. Do not blindly keep the newest wheel if it was built for a newer
-CUDA runtime than your driver supports; PyTorch can fail during CUDA
-initialization with `The NVIDIA driver on your system is too old` before FunASR
-starts. If that happens, reinstall compatible PyTorch, torchaudio, and vLLM
-wheels for the CUDA version reported by `nvidia-smi`, or update the NVIDIA
-driver first.
+Why not pip install torch torchaudio? The torch/torchaudio/torchvision versions are determined by the vLLM release — each major vLLM version bumps them together (see vLLM's requirements/cuda.txt). Installing them by hand pulls the newest wheel, which may be built for a newer CUDA runtime than your driver supports; PyTorch then fails during CUDA initialization with The NVIDIA driver on your system is too old before FunASR even starts. Letting vLLM own the trio avoids this. If you still hit a driver-too-old error, install a vLLM version whose CUDA build matches the CUDA reported by nvidia-smi (e.g. vllm==0.19.1 for CUDA 12.x), or update the NVIDIA driver first.
 
 ---
 
@@ -63,7 +63,7 @@ FunASR's vLLM integration splits the ASR model into two independently running co
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                  FunASR + vLLM Inference Architecture          │
+│                  FunASR + vLLM Inference Architecture        │
 ├──────────────────────────────────────────────────────────────┤
 │                                                              │
 │  ┌─────────────── PyTorch (single GPU) ───────────┐          │
@@ -75,12 +75,12 @@ FunASR's vLLM integration splits the ASR model into two independently running co
 │  │                              ▼                            │
 │  │                     Audio Embeddings                      │
 │  │                              │                            │
-│  │  Text Prompt ──→ Tokenize ──→ Embed                      │
+│  │  Text Prompt ──→ Tokenize ──→ Embed                       │
 │  │  (system/user/                  │                         │
 │  │   hotwords/language)            │                         │
 │  │                                 ▼                         │
 │  │                          [Concat Embeddings]              │
-│  └─────────────────────────────────┼─────────────┘          │
+│  └─────────────────────────────────┼─────────────┘           │
 │                                    │                         │
 │                                    ▼ EmbedsPrompt            │
 │  ┌─────────────── vLLM Engine ────────────────────┐          │
@@ -89,7 +89,7 @@ FunASR's vLLM integration splits the ASR model into two independently running co
 │  │   KV Cache management + CUDA Graph             │          │
 │  │   Tensor Parallel (multi-GPU)                  │          │
 │  │                                                │          │
-│  │   Qwen3-0.6B / Llama-2B (LLM decoding)        │          │
+│  │   Qwen3-0.6B / Llama-2B (LLM decoding)         │          │
 │  │                                                │          │
 │  └────────────────────┬───────────────────────────┘          │
 │                       │                                      │
@@ -98,7 +98,7 @@ FunASR's vLLM integration splits the ASR model into two independently running co
 │                       │                                      │
 │  ┌────────────────────┼──────────────────────────┐           │
 │  │  (Optional) CTC Decoder ──→ Forced Alignment  │           │
-│  │           ──→ Character-level timestamps       │           │
+│  │           ──→ Character-level timestamps      │           │
 │  └───────────────────────────────────────────────┘           │
 └──────────────────────────────────────────────────────────────┘
 ```
@@ -126,7 +126,7 @@ FunASR's vLLM integration splits the ASR model into two independently running co
 ### Key Implementation Details
 
 1. **Weight separation**: LLM weights are extracted from `model.pt` and converted to HuggingFace format for vLLM loading
-2. **EmbedsPrompt**: Audio embeddings and text embeddings are concatenated and fed to vLLM as a single prompt embedding
+2. **EmbedsPrompt**: a vLLM input mode that feeds **precomputed embedding vectors** (rather than the usual token IDs) directly as the prompt (enabled via `enable_prompt_embeds=True`). Fun-ASR-Nano requires it because the audio, after the adaptor, is a sequence of continuous vectors — not tokens — so the audio embeddings and text embeddings are concatenated along the sequence dimension and submitted to vLLM as a whole
 3. **use_low_frame_rate**: Fun-ASR-Nano's adaptor output must be truncated to the correct token count via a formula (critical for consistency)
 4. **Batch encode**: Multiple audio files pass through `extract_fbank` → `audio_encoder` → `audio_adaptor` in a single forward pass
 5. **CTC timestamps**: Encoder output is retained; after text generation, forced alignment yields character-level timing
@@ -143,7 +143,7 @@ Offline SDK inference splits the ASR pipeline into two stages executed independe
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│            Stage 1: Audio Encoding (PyTorch, single GPU)             │
+│            Stage 1: Audio Encoding (PyTorch, single GPU)            │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
 │  Audio file list ──→ Group (batch of 8) ──→ Frontend (Fbank)        │
@@ -156,7 +156,7 @@ Offline SDK inference splits the ASR pipeline into two stages executed independe
 │       │                                 (dim transform + LFR trunc) │
 │       │                                          │                  │
 │       └─── Shared text prompt encoding ────┐     ▼                  │
-│            (system/hotwords/language)       │  audio_embeds          │
+│            (system/hotwords/language)      │  audio_embeds          │
 │                     │                      │     │                  │
 │                     ▼                      │     ▼                  │
 │                prefix_emb ──→ [concat: prefix | audio | suffix]     │
@@ -171,16 +171,16 @@ Offline SDK inference splits the ASR pipeline into two stages executed independe
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
 │  EmbedsPrompt × N ──→ vLLM Continuous Batching                      │
-│                        (PagedAttention + CUDA Graph)                 │
+│                        (PagedAttention + CUDA Graph)                │
 │                              │                                      │
 │                              ▼                                      │
-│                     Generated token_ids × N                          │
+│                     Generated token_ids × N                         │
 │                              │                                      │
 │                              ▼                                      │
-│                     Decode + post-processing (strip special tokens)  │
+│                     Decode + post-processing (strip special tokens) │
 │                              │                                      │
 │                              ▼                                      │
-│                     (Optional) CTC Forced Alignment → char timestamps│
+│                    (Optional) CTC Forced Alignment → char timestamps│
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -307,7 +307,32 @@ for result in engine.streaming_generate("audio.wav", language="中文"):
 | 1.5–3.0 s | Partially correct |
 | > 3.0 s | Accurate output |
 
-> Note: `repetition_penalty=1.3` is hardcoded internally to prevent short-chunk repetition degradation.
+> **Note: `repetition_penalty` cannot be used with EmbedsPrompt.** Here the prompt is a sequence of embedding vectors with no corresponding token IDs, whereas `repetition_penalty` needs the prompt's token IDs to down-weight already-seen tokens in the logits; applying it under EmbedsPrompt **indexes out of bounds and triggers a CUDA device-side assert**. 
+
+### Production API Stability Checklist
+
+When wrapping `AutoModelVLLM` in a long-running API service, keep request state isolated and pin safe decoding defaults:
+
+```python
+common = dict(
+    language="auto",
+    temperature=0.0,
+    repetition_penalty=1.0,
+    max_new_tokens=200,
+)
+
+for _ in range(2):
+    results = model.generate(["vad_segment_01.wav", "vad_segment_02.wav"], **common)
+    print([r["text"] for r in results])
+```
+
+If the same audio is normal on the first request but repeats on the second request:
+
+1. Run the minimal script above outside the API layer with the same VAD segments.
+2. If the script is stable, check whether the API wrapper reuses per-request variables, previous VAD segment lists, previous `results`, or accumulated text across requests.
+3. If the script also repeats, capture the exact `funasr`, `vllm`, and `torch` versions, plus the first and second outputs, before tuning any decoding parameter.
+
+Do not increase `repetition_penalty` to suppress repeats on Fun-ASR-Nano vLLM. The prompt-embeds path should stay at the neutral value `1.0`.
 
 ---
 
@@ -321,7 +346,7 @@ Client                                  serve_vllm.py
   │── HTTP / OpenAI / WebSocket ─────────→│
   │                                        │
   │                                   ┌────┴────────────────────────┐
-  │                                   │ 1. Receive complete audio    │
+  │                                   │ 1. Receive complete audio   │
   │                                   │ 2. Dynamic VAD (≤60 s/seg)  │
   │                                   │ 3. vLLM batch all segments  │
   │                                   │ 4. CTC timestamps (per-char)│
@@ -346,6 +371,11 @@ CUDA_VISIBLE_DEVICES=0 python examples/industrial_data_pretraining/fun_asr_nano/
     --model FunAudioLLM/Fun-ASR-Nano-2512 \
     --gpu-memory-utilization 0.5
 ```
+
+> **About [`CUDA_VISIBLE_DEVICES`](https://docs.vllm.ai/en/v0.4.3/serving/env_vars.html)**:  the `=0` in the examples is just an illustrative value ("use GPU 0"), **not a fixed requirement**. It selects which GPUs are visible to this process (indexed as in `nvidia-smi`), a single GPU machine does not need to set it.
+>
+> - **Single GPU**: small models like 0.6B / 1.7B can run several instances on one card — point multiple processes at the same GPU (e.g. all `=0`) sharing it via MPS, or split across cards with process A `=0`, B `=1` (see §6.7).
+>
 
 ### 5.3 Protocol 1: HTTP REST — `POST /asr`
 
@@ -526,25 +556,25 @@ asyncio.run(offline_ws("audio.wav"))
 ```
 Client (microphone / audio stream)     serve_realtime_ws.py
   │                                      │
-  │── WebSocket PCM16 16 kHz ──────────→│
+  │── WebSocket PCM16 16 kHz ───────────→│
   │   (~100 ms per frame, continuous)    │
   │                                      │
-  │                                 ┌────┴─────────────────────────┐
+  │                                 ┌────┴──────────────────────────┐
   │                                 │ Real-time loop:               │
   │                                 │  ├─ Dynamic VAD (60 ms chunk) │
   │                                 │  ├─ Endpoint → vLLM decode    │
   │                                 │  ├─ No endpoint → partial     │
   │                                 │  └─ Streaming SPK assignment  │
-  │                                 └────┬─────────────────────────┘
+  │                                 └────┬──────────────────────────┘
   │                                      │
-  │←── JSON real-time push ─────────────│
+  │←── JSON real-time push ──────────────│
 ```
 
 **Characteristics**:
 - Audio arrives frame by frame; processing starts immediately
 - Natural sentence segmentation based on VAD endpoints
 - Confirmed segment text is locked and never changes; partial text updates in real time
-- Streaming speaker assignment + global re-clustering on STOP
+- Optional streaming speaker assignment (`--enable-spk`) + global re-clustering on STOP
 - First-word latency ~480 ms
 
 ### 6.2 Starting the Service
@@ -553,6 +583,29 @@ Client (microphone / audio stream)     serve_realtime_ws.py
 CUDA_VISIBLE_DEVICES=0 python examples/industrial_data_pretraining/fun_asr_nano/serve_realtime_ws.py \
     --port 10095 --language 中文 --hotword-file hotword_list
 ```
+
+For multi-client or long continuous-speech workloads, start by bounding partial previews and lowering the refresh rate:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python examples/industrial_data_pretraining/fun_asr_nano/serve_realtime_ws.py \
+    --port 10095 --language 中文 \
+    --partial-window-sec 8 --decode-interval 0.8
+```
+
+Speaker diarization is disabled by default; add `--enable-spk` only when the `spk` field is required.
+
+For long-lived microphone sessions behind Docker, nginx, or a cloud load
+balancer, keep WebSocket ping/pong enabled and tune the timeout to be longer
+than short network stalls:
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python examples/industrial_data_pretraining/fun_asr_nano/serve_realtime_ws.py \
+    --port 10095 --language 中文 \
+    --ws-ping-interval 20 --ws-ping-timeout 60
+```
+
+Set `--ws-ping-interval 0` only when an external gateway already owns
+keepalive/reconnect policy.
 
 ### 6.3 WebSocket Protocol
 
@@ -566,18 +619,18 @@ CUDA_VISIBLE_DEVICES=0 python examples/industrial_data_pretraining/fun_asr_nano/
 | Hotwords | `"HOTWORDS:word1,word2"` | Optional |
 | Language | `"LANGUAGE:中文"` | Optional |
 | Audio | `binary` | PCM16 16 kHz mono |
-| End | `"STOP"` | Final decode + SPK re-clustering |
+| End | `"STOP"` | Final decode; SPK re-clustering only when `--enable-spk` is enabled |
 
 **Server → Client**:
 
 ```json
 {"event": "started"}
-{"sentences": [{"text":"你好","start":300,"end":1200,"spk":0}], "partial": "世界", "is_final": false}
+{"sentences": [{"text":"你好","start":300,"end":1200}], "partial": "世界", "is_final": false}
 {"sentences": [...], "is_final": true}
 {"event": "stopped"}
 ```
 
-**Fields**: `sentences[]` = locked segments, `partial` = text being spoken (may change), `is_final` = true after STOP.
+**Fields**: `sentences[]` = locked segments, `partial` = text being spoken (may change), `partial_start_ms` = where the current provisional `partial` begins, `is_final` = true after STOP. When `--enable-spk` is enabled, `sentences[]` also includes `spk`.
 
 **Sequence diagram**:
 ```
@@ -585,7 +638,7 @@ Client              Server
   │── START ───────→│
   │←─ started ──────│
   │── [audio] ─────→│
-  │←─ {partial} ────│
+  │←─ {partial} ────│  #refer to 6.5
   │── [audio] ─────→│
   │←─ {sentences+partial} ─│  (VAD cut a sentence)
   │── STOP ────────→│
@@ -600,6 +653,15 @@ Client              Server
 python client_python.py --server ws://localhost:10095 --mic
 python client_python.py --server ws://localhost:10095 --file audio.wav
 ```
+
+**Realtime benchmark**:
+```bash
+python examples/industrial_data_pretraining/fun_asr_nano/realtime_ws_benchmark.py \
+    audio_16k_mono_pcm16.wav --server ws://localhost:10095 --clients 4 \
+    --output-jsonl realtime_ws_4c.jsonl
+```
+
+For metric definitions and reporting fields, see [Realtime WebSocket Benchmark](./benchmark/realtime_ws_benchmark.md).
 
 **Browser**: Open `client_mic.html`
 
@@ -630,6 +692,51 @@ async def stream(audio_path):
 
 asyncio.run(stream("audio.wav"))
 ```
+
+### 6.5 Partial preview mechanism and long-sentence behavior
+
+**What partial is and how it's produced**
+While the user is speaking, the streaming service periodically (default `decode_interval≈0.48s` in `serve_realtime_ws.py`) decodes "the current sentence from its start up to now," emitting **provisional text** (the `partial` field in the protocol, which may be overwritten by later refreshes), until VAD detects the sentence end and locks it into `sentences`. This lets the user see text as they speak.
+
+> Note: `serve_vllm.py`'s `/ws` (§5) has **no partial** and only returns at sentence end; use `serve_realtime_ws.py` for live preview.
+
+**Frontend rendering rule**
+Treat `partial` as a replaceable preview, not as text to append. A good UI keeps locked text and preview text separate:
+
+```js
+const committed = data.sentences.map((s) => s.text).join("");
+const preview = data.partial || "";
+render(committed + preview);
+```
+
+If `partial_start_ms` moves forward because `--partial-window-sec` is active, the preview only describes the current bounded decode window. Replace the preview area on each message; append only VAD-locked `sentences` or the final `is_final=true` result.
+
+**Principle: why each partial re-encodes the whole segment from the start**
+Fun-ASR-Nano's acoustic encoder (SenseVoice) is a **full-context, non-streaming** encoder — each frame's representation depends on the context of the entire segment. When the sentence continues and the audio grows, the context of the earlier frames changes, so **the previously computed encoding no longer holds**. It therefore cannot cache history and encode only the new frames the way a streaming / causal encoder would; it must run the whole "start → now" segment through the encoder again.
+
+**Resulting behavior: partial gets slower on long sentences (O(L²))**
+Because each refresh re-encodes from the sentence start, the longer a sentence, the longer each partial's audio and the more refreshes occur — so **total encoding work grows quadratically with sentence length**. In practice a ~29 s continuous utterance is fully re-encoded a dozen-plus times, with single-pass encoder time climbing from tens to hundreds of milliseconds. (The §4 SDK streaming "each chunk contains all audio from the start to now" is the same mechanism; long files behave the same way.)
+
+**Usage guidance**
+- Normal conversational speech has natural pauses, so VAD splits it into relatively short utterances and each partial's cost is naturally bounded — **usually nothing to worry about**.
+- Only **very long, pauseless continuous speech** (e.g. reading aloud) makes a single utterance keep growing and the partial preview progressively slower. `serve_realtime_ws.py` bounds provisional previews with `--partial-window-sec 15` by default; for multi-client or continuous-monologue load tests, try `8-10` and raise `--decode-interval` to `0.8-1.0`. This only affects provisional `partial`; VAD-locked sentences and STOP final output still run on the full audio.
+
+### 6.6 Cost of speaker diarization (SPK) and how to enable it
+
+`serve_realtime_ws.py` **does not load** the SPK model by default. It loads `--spk-model` (default `iic/speech_eres2netv2_sv_zh-cn_16k-common`) only when started with `--enable-spk`, then runs speaker assignment for each VAD-completed sentence during streaming. Note:
+
+- **SPK is of limited effectiveness on Fun-ASR-Nano** (see #2944); most real-time ASR scenarios do not need speaker separation.
+- **Streaming SPK is expensive and grows with the session**: each sentence re-clusters **all historical embeddings** (**O(N²)**, more expensive per sentence as the session grows) and **synchronously blocks the event loop**; the session also **re-clusters everything again** at the end, so the per-sentence clustering during streaming is overwritten by the final result — redundant as far as the final output is concerned. This is especially pronounced under long sessions + high concurrency.
+- **Recommendation**: keep the default off for multi-client live ASR; if diarization is required, add `--enable-spk` and treat the final STOP-time labels as authoritative.
+
+### 6.7 Production concurrency and multi-process deployment
+
+`serve_realtime_ws.py` is a **single-asyncio-event-loop** service: both `decode()` (timed partial) and `add_audio()` (decode triggered at VAD sentence end) **synchronously block** the entire event loop — while any one connection is decoding, all others pause sending/receiving. Therefore:
+
+- **The single-process concurrency ceiling comes from event-loop serialization, not GPU compute.** Under high concurrency GPU utilization stays low and the encoder runs at ~86× real time; mistaking this for insufficient GPU and adding cards or tensor parallelism yields little (TP only splits the LLM, not the standalone encoder).
+- **The right way to scale (currently) = multiple independent processes on one card + CUDA MPS + nginx round-robin**: each process has its own GIL and CUDA context, sidestepping the single-loop serialization; MPS lets the processes truly share the GPU concurrently and fill the idle compute; nginx round-robins across the WebSocket backends. Beyond a single card's headroom, scale out horizontally (one instance per card + a load balancer).
+- **vLLM is not always more efficient for small real-time streams than several PyTorch processes.** vLLM helps most when requests can be batched or when LLM token decoding dominates. The current real-time WebSocket path submits many small, synchronous per-connection decode calls through one event loop, so it may reserve much more memory while still leaving GPU utilization modest. For a small number of continuous microphone streams, several lighter PyTorch processes can be easier to pack on one card. For vLLM, benchmark with the real traffic shape and start with lower `--gpu-memory-utilization` plus multiple service processes instead of assuming one vLLM process should carry every stream.
+- **Sustainable concurrency has no universal "supports N connections" number.** The ceiling is set not by the number of connections but by **how many are speaking at the same moment** — each speaking connection triggers a partial decode roughly once per second, all serialized on that single event loop. It mainly varies with: **① silence ratio** — in real turn-taking users spend most of the time listening, so far fewer are decoding simultaneously than are connected, whereas a continuous monologue keeps nearly every connection decoding; **② sentence length** — longer sentences make each partial encode more expensive (see 6.5's O(L²)), raising load at the same connection count. So the same "single L20 + multi-process + MPS" setup can sustain dozens of connections under turn-taking-like load but markedly fewer under long, pauseless speech. **Any "supports X connections" figure holds only for the traffic profile it was measured under** — benchmark with your own real traffic (sentence length, pauses, continuous or not) rather than treating someone else's number as your spec.
 
 ---
 
@@ -690,3 +797,23 @@ Streaming: `serve_realtime_ws.RealtimeASRSession`
 
 **Q: Slow first startup?**
 vLLM initialization takes 60–90 s (KV Cache + CUDA Graph warmup). Subsequent inferences are instant.
+
+**Q: vLLM returns repeated punctuation such as `!!!!!!!!` but PyTorch/HF generate is normal. What should I check?**
+This usually means the audio frontend and checkpoint can work, but the vLLM
+prompt-embedding path or decoding parameters differ from the upstream runner.
+Check these items before changing the model:
+
+- Pass prompt embeddings to vLLM as float32:
+  `EmbedsPrompt(prompt_embeds=input_embeds.float())`.
+- Use ASR-style deterministic decoding. The Fun-ASR-Nano vLLM path defaults to
+  `temperature=0.0`, `top_p=1.0`, and `skip_special_tokens=True`. In
+  prompt-embeds mode, keep `repetition_penalty` at the neutral `1.0` unless you
+  are using a token-prompt path; other values are normalized by FunASR's vLLM
+  helpers to avoid vLLM CUDA scatter errors.
+- Verify that `model_dir` and `vllm_model_dir` are the matching Fun-ASR-Nano
+  pair. If clearing `vllm_model_dir` makes the same audio work through HF
+  generate, keep debugging the vLLM path rather than the audio file.
+- Log vLLM `finish_reason`, generated token ids, prompt embedding dtype, and
+  prompt embedding shape for one failing sample. Repeated punctuation with
+  `finish_reason="length"` usually points to decode/prompt mismatch rather than
+  VAD or audio loading.

@@ -1,6 +1,6 @@
 ([简体中文](https://github.com/modelscope/FunASR/blob/main/docs/tutorial/README_zh.md)|English)
 
-FunASR has open-sourced a large number of pre-trained models on industrial data. You are free to use, copy, modify, and share FunASR models under the [Model License Agreement](https://github.com/alibaba-damo-academy/FunASR/blob/main/MODEL_LICENSE). Below, we list some representative models. For a comprehensive list, please refer to our [Model Zoo](https://github.com/alibaba-damo-academy/FunASR/tree/main/model_zoo).
+FunASR has open-sourced a large number of pre-trained models on industrial data. You are free to use, copy, modify, and share FunASR models under the [Model License Agreement](https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE). Below, we list some representative models. For a comprehensive list, please refer to our [Model Zoo](https://github.com/modelscope/FunASR/tree/main/model_zoo).
 
 <div align="center">  
 <h4>
@@ -39,7 +39,7 @@ print(res)
 ```python
 model = AutoModel(model=[str], device=[str], ncpu=[int], output_dir=[str], batch_size=[int], hub=[str], **kwargs)
 ```
-- `model`(str): model name in the [Model Repository](https://github.com/alibaba-damo-academy/FunASR/tree/main/model_zoo), or a model path on local disk.
+- `model`(str): model name in the [Model Repository](https://github.com/modelscope/FunASR/tree/main/model_zoo), or a model path on local disk.
 - `device`(str): `cuda:0` (default gpu0) for using GPU for inference, specify `cpu` for using CPU. `mps`: Mac computers with M-series chips use MPS for inference. `xpu`: Uses Intel GPU for inference.
 - `ncpu`(int): `4` (default), sets the number of threads for CPU internal operations.
 - `output_dir`(str): `None` (default), set this to specify the output path for the results.
@@ -86,6 +86,31 @@ wav_file = f"{model.model_path}/example/asr_example.wav"
 res = model.generate(input=wav_file, batch_size_s=300, batch_size_threshold_s=60, hotword='魔搭')
 print(res)
 ```
+
+#### Postprocess hotword correction
+
+Model-level `hotword` / `hotwords` boosts a small set of terms during decoding. For large vocabularies (for example thousands of stock names), apply text-level correction after recognition:
+
+```python
+from funasr import AutoModel
+
+model = AutoModel(model="paraformer-zh", vad_model="fsmn-vad", punc_model="ct-punc")
+
+res = model.generate(
+    input="asr_example.wav",
+    postprocess_hotwords={
+        "科大迅飞": "科大讯飞",
+        "东方财富": "东方财富",
+    },
+    postprocess_hotword_threshold=0.85,
+    return_postprocess_hotword_matches=True,
+)
+print(res[0]["text"])
+print(res[0].get("postprocess_hotword_matches"))
+```
+
+You can also pass `postprocess_hotword_file` with one target word per line, or an explicit mapping such as `wrong=>right`. Fuzzy matching requires optional `pypinyin` and `rapidfuzz`; explicit mappings work without them.
+
 Notes:
 - Typically, the input duration for models is limited to under 30 seconds. However, when combined with `vad_model`, support for audio input of any length is enabled, not limited to the paraformer model—any audio input model can be used.
 - Parameters related to model can be directly specified in the definition of AutoModel; parameters related to `vad_model` can be set through `vad_kwargs`, which is a dict; similar parameters include `punc_kwargs` and `spk_kwargs`.
@@ -212,7 +237,7 @@ res = model.generate(input=(wav_file, text_file), data_type=("sound", "text"))
 print(res)
 ```
 
-More examples ref to [docs](https://github.com/alibaba-damo-academy/FunASR/tree/main/examples/industrial_data_pretraining)
+More examples ref to [docs](https://github.com/modelscope/FunASR/tree/main/examples/industrial_data_pretraining)
 
 #### Speaker Verification / Diarization (ERes2NetV2)
 ```python
@@ -241,6 +266,7 @@ for sentence in res:
     print(f"[Speaker {sentence['spk']}] {sentence['text']}")
 ```
 Notes: `spk_model` can also be `"cam++"` (CAM++ model). ERes2NetV2 provides improved short-duration speaker feature extraction.
+Custom `spk_model` values can be ModelScope model ids or local model paths. The model must load through FunASR `AutoModel` and return `spk_embedding` from its `inference()` method; users still call `AutoModel.generate()`. Downstream speaker clustering uses those embeddings to assign `spk` labels.
 
 #### Multi-language ASR (Qwen3-ASR)
 ```python
@@ -258,7 +284,7 @@ print(res[0]["text"])
 res = model.generate(input="audio.wav")
 print(res[0]["text"], res[0].get("language", ""))
 ```
-Notes: Requires `pip install qwen-asr`. Supports 0.6B and 1.7B model sizes.
+Notes: Use `pip install -U "qwen-asr==0.0.6" "transformers==4.57.6" accelerate`. `qwen-asr==0.0.6` pins `transformers==4.57.6`; newer incompatible Transformers builds may fail with nested `thinker_config` errors. Supports 0.6B and 1.7B model sizes.
 
 #### Multi-language ASR (GLM-ASR)
 ```python
@@ -296,7 +322,7 @@ cd examples/industrial_data_pretraining/paraformer
 bash finetune.sh
 # "log_file: ./outputs/log.txt"
 ```
-Full code ref to [finetune.sh](https://github.com/alibaba-damo-academy/FunASR/blob/main/examples/industrial_data_pretraining/paraformer/finetune.sh)
+Full code ref to [finetune.sh](https://github.com/modelscope/FunASR/blob/main/examples/industrial_data_pretraining/paraformer/finetune.sh)
 
 ### Detailed Parameter Description:
 
@@ -320,8 +346,8 @@ funasr/bin/train_ds.py \
 ```
 
 - `model`（str）: The name of the model (the ID in the model repository), at which point the script will automatically download the model to local storage; alternatively, the path to a model already downloaded locally.
-- `train_data_set_list`（str）: The path to the training data, typically in jsonl format, for specific details refer to [examples](https://github.com/alibaba-damo-academy/FunASR/blob/main/data/list).
-- `valid_data_set_list`（str）：The path to the validation data, also generally in jsonl format, for specific details refer to examples](https://github.com/alibaba-damo-academy/FunASR/blob/main/data/list).
+- `train_data_set_list`（str）: The path to the training data, typically in jsonl format, for specific details refer to [examples](https://github.com/modelscope/FunASR/blob/main/data/list).
+- `valid_data_set_list`（str）：The path to the validation data, also generally in jsonl format, for specific details refer to examples](https://github.com/modelscope/FunASR/blob/main/data/list).
 - `dataset_conf.batch_type`（str）：example (default), the type of batch. example means batches are formed with a fixed number of batch_size samples; length or token means dynamic batching, with total length or number of tokens of the batch equalling batch_size.
 - `dataset_conf.batch_size`（int）：Used in conjunction with batch_type. When batch_type=example, it represents the number of samples; when batch_type=length, it represents the length of the samples, measured in fbank frames (1 frame = 10 ms) or the number of text tokens.
 - `train_conf.max_epoch`（int）：The total number of epochs for training.
@@ -370,7 +396,7 @@ torchrun --nnodes 2 --node_rank 1 --nproc_per_node ${gpu_num} --master_addr=192.
 
 #### Data prepare
 
-`jsonl` ref to（[demo](https://github.com/alibaba-damo-academy/FunASR/blob/main/data/list)）.
+`jsonl` ref to（[demo](https://github.com/modelscope/FunASR/blob/main/data/list)）.
 The instruction scp2jsonl can be used to generate from wav.scp and text.txt. The preparation process for wav.scp and text.txt is as follows:
 
 `train_text.txt`
@@ -504,7 +530,7 @@ Parameter Introduction
 - `tokenizer_conf.token_list`：The path to the vocabulary file, which is normally specified in config.yaml. There is no need to manually specify it again unless the path in config.yaml is incorrect, in which case the correct path must be manually specified here.
 - `frontend_conf.cmvn_file`：The CMVN (Cepstral Mean and Variance Normalization) file used when extracting fbank features from WAV files, which is usually specified in config.yaml. There is no need to manually specify it again unless the path in config.yaml is incorrect, in which case the correct path must be manually specified here.
 
-Other parameters are the same as mentioned above. A complete [example](https://github.com/alibaba-damo-academy/FunASR/blob/main/examples/industrial_data_pretraining/paraformer/infer_from_local.sh) can be found here.
+Other parameters are the same as mentioned above. A complete [example](https://github.com/modelscope/FunASR/blob/main/examples/industrial_data_pretraining/paraformer/infer_from_local.sh) can be found here.
 
 <a name="Export"></a>
 ## Export ONNX
@@ -542,7 +568,7 @@ result = model(wav_path)
 print(result)
 ```
 
-More examples ref to [demo](https://github.com/alibaba-damo-academy/FunASR/tree/main/runtime/python/onnxruntime)
+More examples ref to [demo](https://github.com/modelscope/FunASR/tree/main/runtime/python/onnxruntime)
 
 
 <a name="new-model-registration-tutorial"></a>

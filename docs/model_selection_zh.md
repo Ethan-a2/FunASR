@@ -4,7 +4,17 @@
 
 ## 默认快速路径
 
-如果还不确定，先从 **SenseVoice-Small** 开始：
+如果有 GPU，先从旗舰 **Fun-ASR-Nano** 开始 —— 基于 LLM 的识别模型（SenseVoice 编码器 + Qwen3 解码），覆盖 31 语种，在难例、上下文和专名上精度最强：
+
+```python
+from funasr import AutoModel
+
+model = AutoModel(model="FunAudioLLM/Fun-ASR-Nano-2512", device="cuda")
+result = model.generate(input="meeting.wav")
+print(result[0]["text"])
+```
+
+在 CPU 上，或当你想要多语种 + 情感/事件标签、带说话人信息的会议转写一次完成时，用 **SenseVoice-Small**：
 
 ```python
 from funasr import AutoModel
@@ -18,7 +28,7 @@ model = AutoModel(
 result = model.generate(input="meeting.wav")
 ```
 
-它适合 demo、私有 API、多语种转写、带说话人信息的会议转写和 Agent 语音输入。只有当你的场景明确需要中文生产识别、低延迟流式结果或 LLM-based ASR 实验时，再切换到其他路径。
+当你的场景是纯中文、需要字级时间戳或热词时，切换到 Paraformer。
 
 ## 决策表
 
@@ -42,6 +52,8 @@ result = model.generate(input="meeting.wav")
 | `paraformer` | `paraformer-zh` + VAD + 标点 | 中文生产流量优先尝试。 |
 | `paraformer-en` | `paraformer-en` + VAD | OpenAI 风格客户端里的英文轻量路由。 |
 | `fun-asr-nano` | `FunAudioLLM/Fun-ASR-Nano-2512` | 评估 LLM-based ASR、31 语种覆盖或 vLLM 加速。 |
+
+如果部署目标是昇腾 NPU，请把 `fun-asr-nano` 和 SenseVoice / Paraformer 分开看。Fun-ASR-Nano 的 PyTorch `AutoModel` 路径在修复 NPU autocast 后已有 310P3 社区兼容性 smoke 结果，但该测试明显慢于 CPU；`AutoModelVLLM` 仍依赖 vLLM-Ascend 算子支持，并已遇到 Qwen3 rotary / `TransData` 失败。生产部署优先使用 CUDA/vLLM、标准 PyTorch CPU/GPU 或 GGUF runtime，除非你正在主动验证 Ascend 后端。
 
 接入客户端前先检查在线服务：
 

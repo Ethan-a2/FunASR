@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>工业级语音识别。比 Whisper 快 170 倍。支持 50+ 语言。</strong><br>
+  <strong>工业级语音识别。最高 340 倍实时，比 Whisper 快 26 倍。支持 50+ 语言。</strong><br>
   <em>说话人分离 · 情感识别 · 流式转写 · 一次调用搞定</em>
 </p>
 
@@ -38,16 +38,19 @@ pip install funasr
 
 ```python
 from funasr import AutoModel
+from funasr.utils.postprocess_utils import rich_transcription_postprocess
 
 model = AutoModel(model="iic/SenseVoiceSmall", vad_model="fsmn-vad", spk_model="cam++", device="cuda")
-result = model.generate(input="meeting.wav")
+result = model.generate(input="https://isv-data.oss-cn-hangzhou.aliyuncs.com/ics/MaaS/ASR/test_audio/asr_example_zh.wav")
+
+# 一次调用即返回带说话人 id 和时间戳的 VAD 分段，可自由渲染：
+for seg in result[0]["sentence_info"]:
+    print(f"[{seg['start']/1000:.1f}s] 说话人{seg['spk']}: {rich_transcription_postprocess(seg['sentence'])}")
 ```
 
 **输出** — 带说话人标签、时间戳和标点的结构化文本：
 ```
-[00:00.4 → 00:03.8] 说话人0: 我们今天讨论一下 Q3 的计划。
-[00:04.2 → 00:07.1] 说话人1: 好的，我有三个要点。
-[00:07.5 → 00:12.3] 说话人0: 请讲，我们还有 30 分钟。
+[0.6s] 说话人0: 欢迎大家来体验达摩院推出的语音识别模型
 ```
 
 一个模型、一次调用 — VAD 分段、语音识别、标点恢复、说话人分离全部自动完成。
@@ -60,7 +63,7 @@ result = model.generate(input="meeting.wav")
 from funasr import AutoModel
 
 model = AutoModel(model="FunAudioLLM/Fun-ASR-Nano-2512", vad_model="fsmn-vad", device="cuda")
-result = model.generate(input="meeting.wav")
+result = model.generate(input="https://isv-data.oss-cn-hangzhou.aliyuncs.com/ics/MaaS/ASR/test_audio/asr_example_zh.wav")
 ```
 
 使用 vLLM 加速（批量处理快 16 倍）：
@@ -78,16 +81,18 @@ results = model.generate(["audio1.wav", "audio2.wav"], language="auto")
 
 ### 为什么选 FunASR？
 
-| | FunASR | Whisper | 云端 API |
+Whisper 是单个模型，**FunASR 是一个工具箱**——按场景挑模型：**Fun-ASR-Nano**（旗舰 LLM-ASR，需 GPU，vLLM 下 340 倍实时，31 种语言）、**SenseVoice**（CPU 友好，额外带情感与音频事件）、**Paraformer**（低延迟流式）。下表是工具箱相比单个 Whisper 模型能提供什么——每项能力都标注了由哪个模型提供：
+
+| | FunASR（工具箱） | Whisper | 云端 API |
 |---|---|---|---|
-| 速度 | **170 倍实时** | 13 倍实时 | ~1 倍实时 |
+| 最高速度 | **340 倍实时**（Fun-ASR-Nano + vLLM） | 13 倍实时 | ~1 倍实时 |
 | 说话人识别 | ✅ 内置 | ❌ 需要 pyannote | ✅ 额外付费 |
-| 情感识别 | ✅ 开心/悲伤/愤怒 | ❌ | ❌ |
-| 语言数 | 50+ | 57 | 因服务而异 |
-| 流式识别 | ✅ WebSocket | ❌ | ✅ |
+| 情感识别 | ✅ 由 SenseVoice 提供 | ❌ | ❌ |
+| 语言数 | 50+（Qwen3-ASR 52、Nano 31） | 57 | 因服务而异 |
+| 流式识别 | ✅ WebSocket（Paraformer） | ❌ | ✅ |
+| CPU 可用 | ✅ 17 倍实时（SenseVoice） | ❌ 太慢 | 不适用 |
 | 私有部署 | ✅ MIT 开源 | ✅ MIT 开源 | ❌ 仅云端 |
 | 费用 | 免费 | 免费 | ¥0.04/分钟起 |
-| CPU 可用 | ✅ 17 倍实时 | ❌ 太慢 | 不适用 |
 
 第一次试用 FunASR？可以先跑 [Colab 快速体验](./examples/colab/README_zh.md)，再配置本地环境。还不确定先用哪个模型？先看 [模型选择指南](./docs/model_selection_zh.md)。计划从 Whisper 或云端 ASR 切换？请按 [迁移指南](./docs/migration_from_whisper_zh.md) 和 [评测示例](./examples/migration/) 用代表性音频评测、映射功能并安全上线。
 
@@ -99,13 +104,13 @@ results = model.generate(["audio1.wav", "audio2.wav"], language="auto")
 
 > 184 条长音频（共 192 分钟）。[完整报告 →](https://modelscope.github.io/FunASR/zh/benchmark.html)
 
-| 模型 | GPU 速度 | CPU 速度 | 对比 Whisper-large-v3 |
-|------|----------|----------|---------------------|
-| **SenseVoice-Small** | **170 倍**实时 | **17 倍**实时 | 🚀 **快 13 倍** |
-| **Paraformer-Large** | **120 倍**实时 | **15 倍**实时 | 🚀 **快 9 倍** |
-| Whisper-large-v3-turbo | 46 倍实时 | ❌ | 快 3.4 倍 |
-| **Fun-ASR-Nano** | 17 倍实时 | 3.6 倍实时 | 快 1.3 倍 |
-| Whisper-large-v3 | 13 倍实时 | ❌ | 基准 |
+| 模型 | 中文 CER ↓ | GPU 速度 | CPU 速度 | 对比 Whisper-large-v3 |
+|------|------|----------|----------|---------------------|
+| **Fun-ASR-Nano**（vLLM） | **8.20%** | **340 倍**实时 | — | 🚀 **快 26 倍** |
+| **SenseVoice-Small** | **7.81%** | **170 倍**实时 | **17 倍**实时 | 🚀 **快 13 倍** |
+| **Paraformer-Large** | 10.18% | **120 倍**实时 | **15 倍**实时 | 🚀 **快 9 倍** |
+| Whisper-large-v3-turbo | 21.71% | 46 倍实时 | ❌ | 快 3.4 倍 |
+| Whisper-large-v3 | 20.02% | 13 倍实时 | ❌ | 基准 |
 
 > **一句话：** FunASR 在 CPU 上的速度，比 Whisper 在 GPU 上还快。
 
@@ -113,8 +118,8 @@ results = model.generate(["audio1.wav", "audio2.wav"], language="auto")
 
 ## 最新动态
 
-- 2026/05/24：**vLLM 推理引擎** — Fun-ASR-Nano 解码加速 2-3 倍。支持流式 WebSocket 服务（VAD + 说话人分离 + 热词）。[文档 →](docs/vllm_guide.md)
-- 2026/05/24：**动态 VAD** — 自适应静音阈值（默认开启），短句不切碎、长句自动切分。[详情 →](docs/vllm_guide.md#附录dynamicstreamingvad)
+- 2026/05/24：**vLLM 推理引擎** — Fun-ASR-Nano 解码加速 2-3 倍。支持流式 WebSocket 服务（VAD + 说话人分离 + 热词）。[文档 →](docs/vllm_guide_zh.md) · [实时 WS 调优 →](docs/vllm_guide_zh.md#67-生产并发与多进程部署) · [API 稳定性清单 →](docs/vllm_guide_zh.md#生产-api-稳定性清单)
+- 2026/05/24：**动态 VAD** — 自适应静音阈值（默认开启），短句不切碎、长句自动切分。[详情 →](docs/vllm_guide_zh.md#7-动态-vad)
 - 2026/05/24：**v1.3.3** — `funasr-server` 命令行工具、OpenAI 兼容 API、MCP 服务。`pip install --upgrade funasr`
 - 2026/05/20：新增 Qwen3-ASR (0.6B/1.7B)，52 种语言自动检测。[使用方法](examples/industrial_data_pretraining/qwen3_asr)
 - 2026/05/20：新增 GLM-ASR-Nano (1.5B)，17 种语言，方言优化。[使用方法](examples/industrial_data_pretraining/glm_asr)
@@ -179,16 +184,27 @@ from funasr import AutoModel
 
 # 中文生产级（VAD + 识别 + 标点 + 说话人）
 model = AutoModel(model="paraformer-zh", vad_model="fsmn-vad", punc_model="ct-punc", spk_model="cam++", device="cuda")
-result = model.generate(input="meeting.wav", hotword="关键词 20")
+result = model.generate(input="https://isv-data.oss-cn-hangzhou.aliyuncs.com/ics/MaaS/ASR/test_audio/asr_example_zh.wav", hotword="关键词 20")
 
 # 31 种语言 + 时间戳
 model = AutoModel(model="FunAudioLLM/Fun-ASR-Nano-2512", hub="hf", trust_remote_code=True,
                   vad_model="fsmn-vad", vad_kwargs={"max_single_segment_time": 30000}, device="cuda")
 result = model.generate(input="audio.wav", batch_size=1)
 
-# 流式实时识别
+# 流式实时识别(逐块喂音频)
+import soundfile as sf
 model = AutoModel(model="paraformer-zh-streaming", device="cuda")
-result = model.generate(input="chunk.wav", cache={}, chunk_size=[0, 10, 5])
+audio, sr = sf.read("speech.wav", dtype="float32")   # 16 kHz 单声道
+chunk_size = [0, 10, 5]                               # 每块 600ms
+chunk_stride = chunk_size[1] * 960
+cache = {}
+n_chunks = (len(audio) - 1) // chunk_stride + 1
+for i in range(n_chunks):
+    chunk = audio[i * chunk_stride : (i + 1) * chunk_stride]
+    res = model.generate(input=chunk, cache=cache, is_final=(i == n_chunks - 1),
+                         chunk_size=chunk_size, encoder_chunk_look_back=4, decoder_chunk_look_back=1)
+    if res[0]["text"]:
+        print(res[0]["text"], end="", flush=True)
 
 # 情感识别
 model = AutoModel(model="emotion2vec_plus_large", device="cuda")
@@ -246,6 +262,8 @@ curl http://localhost:8000/v1/audio/transcriptions \
 docker pull registry.cn-hangzhou.aliyuncs.com/funasr_repo/funasr:funasr-runtime-sdk-online-cpu-0.1.12
 ```
 
+> **CPU / 边缘部署(无需 GPU、无需 Python):** 用 **llama.cpp / GGUF** 跑 Fun-ASR-Nano / SenseVoice / Paraformer —— 单个自包含二进制,对标 whisper.cpp。详见 [runtime/llama.cpp/](./runtime/llama.cpp/)。
+
 [OpenAI API 示例 →](./examples/openai_api/README_zh.md) · [Gradio Demo →](./examples/openai_api/GRADIO_zh.md) · [客户端配方 →](./examples/openai_api/CLIENTS.md) · [JavaScript/TypeScript 配方 →](./examples/openai_api/JAVASCRIPT_zh.md) · [Kubernetes 模板 →](./examples/openai_api/kubernetes/README_zh.md) · [工作流配方 →](./examples/openai_api/WORKFLOWS_zh.md) · [Postman 集合 →](./examples/openai_api/POSTMAN_zh.md) · [OpenAPI 规范 →](./examples/openai_api/OPENAPI_zh.md) · [安全指南 →](./examples/openai_api/SECURITY_zh.md) · [部署选型 →](./docs/deployment_matrix_zh.md) · [部署文档 →](./runtime/readme_cn.md) · [Agent 集成 →](https://modelscope.github.io/FunASR/agent.html)
 
 ---
@@ -257,6 +275,7 @@ docker pull registry.cn-hangzhou.aliyuncs.com/funasr_repo/funasr:funasr-runtime-
 | 📖 [文档](https://modelscope.github.io/FunASR/zh/) | 🐛 [问题反馈](https://github.com/modelscope/FunASR/issues) |
 | 💬 [讨论](https://github.com/modelscope/FunASR/discussions) | 🤗 [HuggingFace](https://huggingface.co/funasr) |
 | 🤝 [贡献指南](./CONTRIBUTING.md) | 📈 [20k 增长计划](./docs/community_growth_20k.md) |
+| 🧩 [社区项目](./docs/community_projects.md) | 💡 [使用案例](./docs/use_case_showcase.md) |
 
 ## Star 趋势
 

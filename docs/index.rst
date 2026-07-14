@@ -84,6 +84,8 @@ Overview
    :maxdepth: 1
    :caption: Benchmark and Leaderboard
 
+   ./benchmark/rtf_reproducibility.md
+   ./benchmark/realtime_ws_benchmark.md
    ./benchmark/benchmark_onnx.md
    ./benchmark/benchmark_onnx_cpp.md
    ./benchmark/benchmark_libtorch.md
@@ -113,6 +115,7 @@ Overview
    ./cli.md
    ./use_case_showcase.md
    ./use_case_showcase_zh.md
+   ./community_projects.md
    ./reference/application.md
 
 .. toctree::
