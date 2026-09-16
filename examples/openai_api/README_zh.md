@@ -10,14 +10,14 @@ FunASR OpenAI 兼容 API 提供 `/v1/audio/transcriptions`，可作为私有语�
 
 ## API Contract
 
-- **在本目录运行示例 `python server.py`：**启动预加载与省略 multipart `model` 时的默认值均为 `sensevoice`。没有 `spk` 表单字段，只保留模型本身已经返回的说话人标签。
+- **在本目录运行示例 `python server.py`：**启动预加载与省略 `model` 时的默认值均为 `sensevoice`。转写接口同时支持 multipart 文件上传和 JSON Base64 音频。没有 `spk` 字段，只保留模型本身已经返回的说话人标签。
 - **打包服务 `funasr-server`：**启动 `--model auto` 在设备字符串以 `cuda` 开头时选 `fun-asr-nano`，否则选 `sensevoice`；省略 multipart `model` 时仍独立默认选 `fun-asr-nano`。`spk=true` 为非原生说话人模型请求单独的说话人处理，默认 `False`。
 
 每次请求都应明确指定 `model`：启动预加载与请求默认值是不同设置。请查询实际服务的 `/v1/models`；例如 `paraformer-en` 在示例服务中注册，却不是打包服务的内置别名。表单字段应以运行中服务的 `/openapi.json` 核对，不能只依赖仓库中的[示例规范](OPENAPI_zh.md)。
 
 `response_format=verbose_json` 只选择响应格式，**不会启用说话人分离，也不会强制生成时间戳**。此示例仅在模型返回 `sentence_info` 时将其转换为 `segments`，否则返回 `segments=[]`。说话人标签可能缺失或为 null。MOSS 原生输出匿名标签，不需要 `spk=true` 或外部 VAD/CAM++。
 
-SDK 的 `timestamp` 或 Nano 的 `timestamps` / `ctc_timestamps` 输出不会自动转换为 HTTP 片段。此示例接收 multipart `file`、`model`、`language`、`response_format`；SDK 的 `use_itn`、热词、原始数组及 `spk` 不是其表单字段。示例返回的 `language` 是请求提示或 `auto`，并非检测结果；打包服务可使用后端语言检测。
+SDK 的 `timestamp` 或 Nano 的 `timestamps` / `ctc_timestamps` 输出不会自动转换为 HTTP 片段。此示例接收 multipart 的 `file`、`model`、`language`、`response_format`，也接收 JSON 的 `file`/`audio_base64`/`audio`、`filename`、`model`、`language`、`response_format`；JSON 音频值应为 Base64，也可以是 `data:audio/...;base64,...` URI。SDK 的 `use_itn`、热词、原始数组及 `spk` 不是其请求字段。示例返回的 `language` 是请求提示或 `auto`，并非检测结果；打包服务可使用后端语言检测。
 
 此示例的 `duration` 是 `generate()` 调用的耗时，单位为秒，不包含初次模型加载，**不是音频时长**。打包服务的 verbose 响应使用秒单位的音频时长，其 fallback 在无法读取音频元数据时可能使用 0。两套服务的片段 `start`/`end` 均为秒。打包服务的 fallback 可能根据文本与音频时长生成粗粒度片段，并非逐词强制对齐。打包服务的 verbose 结构包含 `task` 及片段 `id`/`words`，示例服务则包含 `model`，不能假设 JSON 字段完全相同。参见[响应示例与说话人请求](CLIENTS.md#api-contract)。
 
@@ -104,6 +104,17 @@ curl http://localhost:8000/v1/audio/transcriptions \
   -F model=sensevoice \
   -F response_format=verbose_json
 ```
+
+如果调用方只能发送 JSON，可以将音频 Base64 编码后放入 `audio_base64`（或 `file`、`audio`）字段：
+
+```bash
+audio_base64=$(base64 -w 0 audio.wav)
+curl http://localhost:8000/v1/audio/transcriptions \
+  -H 'Content-Type: application/json' \
+  -d "{\"audio_base64\":\"${audio_base64}\",\"filename\":\"audio.wav\",\"model\":\"sensevoice\"}"
+```
+
+JSON 请求不应把 Base64 放在 `multipart/form-data` 的 `file` 文件字段中；如果服务仍返回 `422`，请确认实际请求的 `Content-Type` 是 `application/json` 且 JSON 中存在非空的 `audio_base64`、`file` 或 `audio` 字段。
 
 ## 可用模型
 

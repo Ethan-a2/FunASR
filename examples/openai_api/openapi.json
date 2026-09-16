@@ -36,7 +36,7 @@
           "Transcription"
         ],
         "summary": "Transcribe an audio file",
-        "description": "Upload an audio file with multipart/form-data and receive an OpenAI-compatible transcript response. Set response_format=verbose_json to include segments and timing metadata.",
+        "description": "Upload an audio file with multipart/form-data or send Base64 audio with application/json and receive an OpenAI-compatible transcript response. Set response_format=verbose_json to include segments and timing metadata.",
         "operationId": "createTranscription",
         "requestBody": {
           "required": true,
@@ -44,6 +44,11 @@
             "multipart/form-data": {
               "schema": {
                 "$ref": "#/components/schemas/TranscriptionRequest"
+              }
+            },
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TranscriptionJsonRequest"
               }
             }
           }
@@ -102,7 +107,7 @@
             }
           },
           "422": {
-            "description": "Invalid multipart request"
+            "description": "Invalid multipart or JSON request"
           },
           "500": {
             "description": "Transcription runtime error",
@@ -200,6 +205,68 @@
             ],
             "default": "json",
             "description": "Use verbose_json to include segments and timing metadata."
+          }
+        }
+      },
+      "TranscriptionJsonRequest": {
+        "type": "object",
+        "description": "Send Base64 audio in file, audio_base64, or audio. A data: URI is also accepted.",
+        "anyOf": [
+          {
+            "required": [
+              "file"
+            ]
+          },
+          {
+            "required": [
+              "audio_base64"
+            ]
+          },
+          {
+            "required": [
+              "audio"
+            ]
+          }
+        ],
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Base64 audio or a data: URI. Use file, audio_base64, or audio."
+          },
+          "audio_base64": {
+            "type": "string",
+            "description": "Base64 audio or a data: URI. Use file, audio_base64, or audio."
+          },
+          "audio": {
+            "type": "string",
+            "description": "Base64 audio or a data: URI. Use file, audio_base64, or audio."
+          },
+          "filename": {
+            "type": "string",
+            "default": "audio.wav"
+          },
+          "model": {
+            "type": "string",
+            "enum": [
+              "sensevoice",
+              "paraformer",
+              "paraformer-en",
+              "fun-asr-nano",
+              "moss-transcribe-diarize"
+            ],
+            "default": "sensevoice"
+          },
+          "language": {
+            "type": "string",
+            "nullable": true
+          },
+          "response_format": {
+            "type": "string",
+            "enum": [
+              "json",
+              "verbose_json"
+            ],
+            "default": "json"
           }
         }
       },

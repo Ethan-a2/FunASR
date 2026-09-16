@@ -10,14 +10,14 @@ For the maintained packaged-service route, start with [Agent integration](../../
 
 ## API Contract
 
-- **Example `python server.py` in this directory:** startup and omitted multipart `model` both default to `sensevoice`. There is no `spk` form field; the example only preserves speaker labels already returned by the model.
+- **Example `python server.py` in this directory:** startup and omitted `model` both default to `sensevoice`. Transcription accepts multipart file uploads and JSON Base64 audio. There is no `spk` field; the example only preserves speaker labels already returned by the model.
 - **Packaged `funasr-server`:** startup `--model auto` selects `fun-asr-nano` for a device string starting with `cuda`, otherwise `sensevoice`. Omitted multipart `model` independently defaults to `fun-asr-nano`. `spk=true` requests the separate speaker pipeline for non-native diarization models; default is `False`.
 
 Specify `model` explicitly in requests: startup preloading and the request default are different settings. Query the deployed `/v1/models`; for example, `paraformer-en` is registered by this example but is not a built-in alias of the packaged server. Verify fields with the running `/openapi.json`, not just the checked-in [example schema](OPENAPI.md).
 
 `response_format=verbose_json` selects a response shape; **it does not enable diarization or force timestamp generation**. This example copies `sentence_info` into `segments` if present, otherwise returns `segments=[]`. Speaker labels can be absent or null. MOSS supplies native anonymous labels; it does not need `spk=true` or external VAD/CAM++.
 
-SDK output such as `timestamp`, or Nano's `timestamps` / `ctc_timestamps`, is not automatically converted into HTTP segments. This example accepts multipart `file`, `model`, `language`, and `response_format`; SDK options such as `use_itn`, hotwords, raw arrays, and `spk` are not its form fields. Its `language` is the submitted hint or `auto`, not detected language; the packaged service can use backend language detection.
+SDK output such as `timestamp`, or Nano's `timestamps` / `ctc_timestamps`, is not automatically converted into HTTP segments. This example accepts multipart `file`, `model`, `language`, and `response_format`, or JSON `file`/`audio_base64`/`audio`, `filename`, `model`, `language`, and `response_format`; JSON audio values must be Base64 or a `data:audio/...;base64,...` URI. SDK options such as `use_itn`, hotwords, raw arrays, and `spk` are not its request fields. Its `language` is the submitted hint or `auto`, not detected language; the packaged service can use backend language detection.
 
 In this example, `duration` is elapsed time around `generate()` in seconds, excluding initial model loading; it is **not audio duration**. The packaged server's verbose response uses audio duration in seconds (its fallback can use 0 when audio metadata is unavailable). Segment `start`/`end` use seconds in both services. The packaged fallback can synthesize coarse segments from text and audio duration; those are not word-level forced alignment. Its verbose schema includes `task` and per-segment `id`/`words`, while this example includes `model`; do not assume identical JSON fields. See [response examples and speaker requests](CLIENTS.md#api-contract).
 

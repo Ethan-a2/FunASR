@@ -31,7 +31,7 @@
 |---|---|---|
 | `/health` | `GET` | 健康检查、设备、已加载模型和可用别名。 |
 | `/v1/models` | `GET` | OpenAI 风格模型列表，包含 `ready` 状态。 |
-| `/v1/audio/transcriptions` | `POST` | multipart 音频转写；使用 `response_format=verbose_json` 返回 segments。 |
+| `/v1/audio/transcriptions` | `POST` | 支持 multipart 文件或 JSON Base64 音频转写；使用 `response_format=verbose_json` 返回 segments。 |
 
 ## Multipart 转写字段
 
@@ -41,6 +41,20 @@
 | `model` | string | no | 默认 `sensevoice`；`/v1/models` 也会列出用于离线长音频与原生匿名说话人标签的 `moss-transcribe-diarize`。 |
 | `language` | string | no | 可选语言提示。 |
 | `response_format` | string | no | 使用 `json` 或 `verbose_json`。 |
+
+## JSON Base64 转写字段
+
+请求头使用 `Content-Type: application/json`。音频字段可使用 `audio_base64`、`file` 或 `audio`，值为 Base64 字符串，也可以是 `data:audio/wav;base64,...` 形式的 Data URI。
+
+| Field | Type | Required | 说明 |
+|---|---|---|---|
+| `audio_base64` | string | yes* | Base64 音频；也可使用 `file` 或 `audio`。 |
+| `filename` | string | no | 原始文件名，用于识别音频扩展名；默认 `audio.wav`。 |
+| `model` | string | no | 默认 `sensevoice`。 |
+| `language` | string | no | 可选语言提示。 |
+| `response_format` | string | no | 使用 `json` 或 `verbose_json`。 |
+
+`*` 三个音频字段至少提供一个；JSON 请求不需要 multipart 的 `file` 上传对象。
 
 ## 对照运行中的服务验证
 

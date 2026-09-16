@@ -14,6 +14,8 @@ Then use with any OpenAI-compatible client:
 """
 
 import argparse
+import base64
+import binascii
 import tempfile
 import time
 import os
@@ -22,7 +24,7 @@ import logging
 from typing import Optional
 
 import uvicorn
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -66,6 +68,67 @@ MODEL_CONFIGS = {
     },
 }
 
+BASE64_AUDIO_FIELDS = ("file", "audio_base64", "audio")
+AUDIO_EXTENSIONS_BY_MIME = {
+    "audio/flac": ".flac",
+    "audio/mp3": ".mp3",
+    "audio/mpeg": ".mp3",
+    "audio/mp4": ".m4a",
+    "audio/ogg": ".ogg",
+    "audio/wav": ".wav",
+    "audio/webm": ".webm",
+    "audio/x-m4a": ".m4a",
+    "audio/x-wav": ".wav",
+}
+
+TRANSCRIPTION_OPENAPI_EXTRA = {
+    "requestBody": {
+        "required": True,
+        "content": {
+            "multipart/form-data": {
+                "schema": {
+                    "type": "object",
+                    "required": ["file"],
+                    "properties": {
+                        "file": {"type": "string", "format": "binary"},
+                        "model": {"type": "string", "default": "sensevoice"},
+                        "language": {"type": "string"},
+                        "response_format": {
+                            "type": "string",
+                            "default": "json",
+                            "enum": ["json", "verbose_json"],
+                        },
+                    },
+                }
+            },
+            "application/json": {
+                "schema": {
+                    "type": "object",
+                    "description": "Send Base64 audio in file, audio_base64, or audio. A data: URI is also accepted.",
+                    "anyOf": [
+                        {"required": ["file"]},
+                        {"required": ["audio_base64"]},
+                        {"required": ["audio"]},
+                    ],
+                    "properties": {
+                        "file": {"type": "string", "description": "Base64 audio or a data: URI"},
+                        "audio_base64": {"type": "string", "description": "Base64 audio or a data: URI"},
+                        "audio": {"type": "string", "description": "Base64 audio or a data: URI"},
+                        "filename": {"type": "string", "default": "audio.wav"},
+                        "model": {"type": "string", "default": "sensevoice"},
+                        "language": {"type": "string"},
+                        "response_format": {
+                            "type": "string",
+                            "default": "json",
+                            "enum": ["json", "verbose_json"],
+                        },
+                    },
+                }
+            },
+        },
+    }
+}
+
 
 def load_model(model_name: str):
     """Load a model and store in registry."""
@@ -104,22 +167,100 @@ def resolve_openai_transcription_model(requested_model: str) -> str:
     return requested_model
 
 
-@app.post("/v1/audio/transcriptions")
-async def transcribe(
-    file: UploadFile = File(...),
-    model: str = Form(default="sensevoice"),
-    language: Optional[str] = Form(default=None),
-    response_format: Optional[str] = Form(default="json"),
-):
+def _json_string(payload: dict, field_name: str, default: Optional[str] = None) -> Optional[str]:
+    value = payload.get(field_name, default)
+    if value is not None and not isinstance(value, str):
+        raise HTTPException(status_code=422, detail=f"JSON field '{field_name}' must be a string")
+    return value
+
+
+def _decode_base64_audio(payload: dict) -> tuple[bytes, str]:
+    encoded_audio = None
+    for field_name in BASE64_AUDIO_FIELDS:
+        if field_name in payload:
+            encoded_audio = payload[field_name]
+            break
+
+    if not isinstance(encoded_audio, str) or not encoded_audio.strip():
+        fields = ", ".join(BASE64_AUDIO_FIELDS)
+        raise HTTPException(status_code=422, detail=f"JSON must include a non-empty Base64 field: {fields}")
+
+    encoded_audio = encoded_audio.strip()
+    mime_type = None
+    data_uri_match = re.fullmatch(r"data:([^;,]+)?;base64,(.*)", encoded_audio, flags=re.IGNORECASE | re.DOTALL)
+    if data_uri_match:
+        mime_type = (data_uri_match.group(1) or "").lower()
+        encoded_audio = data_uri_match.group(2)
+
+    encoded_audio = re.sub(r"\s+", "", encoded_audio)
+    encoded_audio += "=" * (-len(encoded_audio) % 4)
+    try:
+        content = base64.b64decode(encoded_audio, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="JSON audio field is not valid Base64") from exc
+
+    if not content:
+        raise HTTPException(status_code=422, detail="JSON audio field decodes to an empty file")
+
+    filename = _json_string(payload, "filename") or _json_string(payload, "file_name")
+    if filename:
+        filename = os.path.basename(filename)
+    if not filename or not os.path.splitext(filename)[1]:
+        filename = f"audio{AUDIO_EXTENSIONS_BY_MIME.get(mime_type, '.wav')}"
+    return content, filename
+
+
+async def _parse_transcription_request(request: Request) -> tuple[bytes, str, str, Optional[str], str]:
+    media_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+
+    if media_type == "multipart/form-data":
+        form = await request.form()
+        uploaded_file = form.get("file")
+        if uploaded_file is None or not callable(getattr(uploaded_file, "read", None)):
+            raise HTTPException(status_code=422, detail="Multipart request must include a file field")
+
+        content = await uploaded_file.read()
+        if not content:
+            raise HTTPException(status_code=422, detail="Uploaded audio file is empty")
+        filename = os.path.basename(getattr(uploaded_file, "filename", None) or "audio.wav")
+        model = form.get("model") if form.get("model") is not None else "sensevoice"
+        language = form.get("language")
+        response_format = form.get("response_format") if form.get("response_format") is not None else "json"
+        return content, filename, model, language, response_format
+
+    if media_type == "application/json" or media_type.endswith("+json"):
+        try:
+            payload = await request.json()
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Request body is not valid JSON") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=422, detail="JSON request body must be an object")
+
+        content, filename = _decode_base64_audio(payload)
+        model = _json_string(payload, "model", "sensevoice") or "sensevoice"
+        language = _json_string(payload, "language")
+        response_format = _json_string(payload, "response_format", "json") or "json"
+        return content, filename, model, language, response_format
+
+    raise HTTPException(
+        status_code=415,
+        detail="Content-Type must be multipart/form-data or application/json",
+    )
+
+
+@app.post("/v1/audio/transcriptions", openapi_extra=TRANSCRIPTION_OPENAPI_EXTRA)
+async def transcribe(request: Request):
     """
     OpenAI-compatible audio transcription endpoint.
     
     Accepts the same parameters as OpenAI's /v1/audio/transcriptions:
-    - file: Audio file (wav, mp3, flac, m4a, ogg, webm)
+    - multipart/form-data: file upload in the file field
+    - application/json: Base64 audio in file, audio_base64, or audio
     - model: Model to use (sensevoice, paraformer, fun-asr-nano, moss-transcribe-diarize)
     - language: Optional language hint
     - response_format: json or verbose_json
     """
+    content, filename, model, language, response_format = await _parse_transcription_request(request)
     model = resolve_openai_transcription_model(model)
 
     # Validate model
@@ -130,9 +271,8 @@ async def transcribe(
         )
 
     # Save uploaded file
-    suffix = os.path.splitext(file.filename)[1] if file.filename else ".wav"
+    suffix = os.path.splitext(filename)[1] or ".wav"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        content = await file.read()
         tmp.write(content)
         tmp_path = tmp.name
 
